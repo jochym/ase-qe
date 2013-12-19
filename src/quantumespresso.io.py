@@ -20,6 +20,7 @@ def read_in_file(infilename):
 """
 
 import os
+import os.path
 import string
 
 import sys
@@ -38,7 +39,7 @@ except ImportError:
 #
 # -------------------------------------------------------------------------------------------------------------------------------    
         
-def read_quantumespresso_textoutput(filename):
+def read_quantumespresso_textoutput(filename, verbose=False):
     """
     read the output text file from a QE run and extracts physical quantities
     returns a dictionary with the quantities
@@ -109,9 +110,10 @@ def read_quantumespresso_textoutput(filename):
         if l.rfind('without spin-orbit') > -1:
             _no_spin_orbit = True
             
-    if(len(matches)>1):
-        last = len(matches)
-        lines = alllines[matches[last-2]:matches[last-1]]
+    if(len(matches)>2):
+        # The last iteration has no data on k-points, cell, positions, etc. 
+        # We need to grab it from the one before last
+        lines = alllines[matches[-3]:matches[-1]]
     else:
         lines = alllines
     
@@ -140,6 +142,7 @@ def read_quantumespresso_textoutput(filename):
     Results['cell'] = None
     Results['atomic_positions'] = None
 
+
     for n, l in enumerate(lines):                                       # loop on the lines from output
 
                                                                         # some quantities, like the stress tensor or the kpoints
@@ -150,6 +153,7 @@ def read_quantumespresso_textoutput(filename):
                                                                         #  sub-block is given by the value of CAUGHT, which is
                                                                         #  decreased by one at each line.
 
+        #print '>>>', l
             
         if CAUGHT < 0:
             # we are not in a sub-block
@@ -157,13 +161,13 @@ def read_quantumespresso_textoutput(filename):
             if len(l)>0 and (l[0] == '!'):  # and l[1] == 'total' and l[2] == 'energy'):
                 t = l.split();
                 if(t[1] == 'total' and t[2] == 'energy'):
-                    print "ENERGY FOUND"
+                    #print "ENERGY FOUND"
                     pos = t.index('ry')
                     Results['etotal'] = float(t[pos-1])                            # total energy in Rydberg
                     Results['EnergyFound'] = True
 
-            elif EnergyFound and l.rfind('scf accuracy') > -1:
-                print "ACCURACY"
+            elif Results['EnergyFound'] and l.rfind('scf accuracy') > -1:
+                #print "ACCURACY"
                 t = l.split()
                 pos = t.index('ry')
                 Results['etotal_accuracy'] = float(t[pos-1])
@@ -195,9 +199,9 @@ def read_quantumespresso_textoutput(filename):
                 t = l.split()
                 pos = t.index('stress')
                 if (pos > 0 and t[pos-1]=='total'):
-                    if l.rfind('p=') > -1:                              # find the pressure
-                        pos = t.index('p=')
-                        Results['pressure'] = float(t[pos+1])
+                    pos = l.rfind('p=')
+                    if  pos > -1:                              # find the pressure
+                        Results['pressure'] = float(l[pos+2:])
                                                                         # set-up to manage the sub-block
                     CAUGHT = 3
                     CAUGHT_DISCARD=0
@@ -205,6 +209,7 @@ def read_quantumespresso_textoutput(filename):
                     CAUGHT_LINES = []
 
             if l.rfind('number of k points=') > -1:                           # find the kpoints
+                #print "K-POINTS"
                 CAUGHT = Results['kpts_num']
                 CAUGHT_DISCARD = 1                                      # discard 1 line at the beginning
                 CAUGHT_WHAT = 'kpts'
@@ -212,6 +217,7 @@ def read_quantumespresso_textoutput(filename):
                         
                         
             if l.rfind('new k-points:') > -1:                           # find the kpoints
+                #print "new K-POINTS"
                 CAUGHT = Results['kpts_num']
                 CAUGHT_DISCARD = 0                                      # discard 0 line at the beginning
                 CAUGHT_WHAT = 'kpts'
@@ -235,6 +241,12 @@ def read_quantumespresso_textoutput(filename):
                 CAUGHT_WHAT = 'new cell'
                 CAUGHT_LINES = []
 
+            if l.rfind('begin final coordinates') > -1:
+                CAUGHT = 3
+                CAUGHT_DISCARD = 3
+                CAUGHT_WHAT = 'new cell'
+                CAUGHT_LINES = []
+
             if l.rfind('atomic_positions') > -1:
                 CAUGHT= Results['nat']
                 CAUGHT_DISCARD = 0
@@ -242,6 +254,7 @@ def read_quantumespresso_textoutput(filename):
                 CAUGHT_LINES = []
                 
         elif CAUGHT > 0:                                                # We are inside a sub-blok
+            #print CAUGHT_WHAT, CAUGHT
             if(CAUGHT_DISCARD == 0):                                    # gets the line but if this line should be
                 CAUGHT_LINES.append(l)                                  # discarded instead
                 CAUGHT -= 1
@@ -262,14 +275,14 @@ def read_quantumespresso_textoutput(filename):
                 Results['kpts_wk'] = []
                 number = len(CAUGHT_LINES)
                 for n in range(number):
-                    Results['kpts'].append([float(self.get_number(el)) for el in CAUGHT_LINES[n].split()[4:7]])
+                    Results['kpts'].append([float(get_number(el)) for el in CAUGHT_LINES[n].split()[4:7]])
                     Results['kpts_wk'].append([float(CAUGHT_LINES[n].split()[9])])
 
             elif (CAUGHT_WHAT == 'forces'):
                 Results['atoms_forces'] = []
                 number = len(CAUGHT_LINES)
                 for n in range(number):
-                    Results['atoms_forces'].append([float(self.get_number(el)) for el in CAUGHT_LINES[n].split()[6:9]])
+                    Results['atoms_forces'].append([float(get_number(el)) for el in CAUGHT_LINES[n].split()[6:9]])
 
                 # elif (CAUGHT_WHAT == 'old cell'):
                 #     old_cell = []
@@ -299,8 +312,8 @@ def read_quantumespresso_textoutput(filename):
         print "etotal is           : %s " % str(Results['etotal'])
         print "etotal accuracy is  : %s " % str(Results['etotal_accuracy'])
         print "niter is            : %s " % str(Results['niter'])
-        print "nelect is           : %s " % str(Results['nelect'])
-        print "Results['nbnds is           : %s " % str(Results['nbands'])
+        # print "nelect is           : %s " % str(Results['nelect'])
+        print "Results nbands is   : %s " % str(Results['nbands'])
         print "Fermi energy is     : %s " % str(Results['fermi_energy'])
         print "tot magnetizations  : %s " % str(Results['total_magnetization'])
         print "abs magnetizations  : %s " % str(Results['absolute_magnetization'])
@@ -345,7 +358,7 @@ def get_bands_for_kpoints(mylines, nk, nb):
         
         
     
-def get_number(self, string):
+def get_number(string):
     for t in string.split():
         array = []
         for c in t:
@@ -408,7 +421,7 @@ def get_qexml_version(tree, mydict):
     get the xml format 
     """
     element = tree.find("HEADER")
-    mydict['qexml_version'] = element.find("FORMAT").attrib["VERSION"].text.strip()
+    mydict['qexml_version'] = element.find("FORMAT").attrib["VERSION"].strip()
     mydict['qexml_after_1.4.0'] = mydict['qexml_version'] >= "1.4.0"
     
 
@@ -456,7 +469,7 @@ def get_k_points_xml(tree, mydict):
         mydict['kpoints_coordinates'].append([float(a) for a in kpoint.find('K-POINT_COORDS').text.split()])
         mydict['kpoints_weights'].append(float(kpoint.find('WEIGHT').text.strip()))
         kpoints_datafile = kpoint.find('DATAFILE').attrib['iotk_link']
-        eigenv, occup = get_eigenvalues_for_kpoint_xml(kpoints_datafile)
+        eigenv, occup = get_eigenvalues_for_kpoint_xml(os.path.dirname(mydict['filename'])+'/'+kpoints_datafile)
         mydict['kpoints_eigenvalues'].append(eigenv)
         mydict['kpoints_occupations'].append(occup)
 
@@ -525,7 +538,7 @@ def get_planewaves_xml(tree, mydict):
             return
     
     element = tree.find("PLANE_WAVES")
-    mydict['cutoff_units'] = element.find("UNITS_FOR_CUTOFF").text.strip().lower()
+    mydict['cutoff_units'] = element.find("UNITS_FOR_CUTOFF").attrib['UNITS'].lower().strip()
         
     mydict['cutoff_wfc'] = float(element.find("WFC_CUTOFF").text.strip())
     mydict['cutoff_rho'] = float(element.find("RHO_CUTOFF").text.strip())
@@ -647,7 +660,7 @@ def get_ions_xml(tree, mydict):
     
 
     if mydict['qexml_after_1.4.0']:
-        for i in range(nsp):
+        for i in range(mydict['nsp']):
             this_atom = {}
             subel = element.find("SPECIE."+str(i+1))
             
@@ -658,15 +671,15 @@ def get_ions_xml(tree, mydict):
     else:
         ValueError, "qexml version is before 1.4.0. This has not been implemented"
         
-    mydict['pseudo_dir'] = element.find("PSEUDO_DIR").tex.strip()
+    mydict['pseudo_dir'] = element.find("PSEUDO_DIR").text.strip()
 
     alat = mydict['alat']
-    for i in range(nat):
+    for i in range(mydict['nat']):
         subel = element.find("ATOM."+str(i+1))
 
-        mydict['atoms_index'].append(int(subel.attrib("INDEX")))
-        mydict['atoms_tau'].append([float(s)/alat for s in subel.attrib("tau").split()])
-        mydict['atoms_if_pos'].append([int(s) for s in subel.attrib("tau").split()])
+        mydict['atoms_index'].append(int(subel.attrib["INDEX"]))
+        mydict['atoms_tau'].append([float(s)/alat for s in subel.attrib["tau"].split()])
+        mydict['atoms_if_pos'].append([int(s) for s in subel.attrib["if_pos"].split()])
 
     mydict['got_ions'] = True
 
@@ -766,9 +779,9 @@ def get_magnetization_xml(tree, mydict):
 
         if (i_cons == 1) or (i_cons == 2):
             v = []
-            v.append(float(specie.find("CONSTRAINT_1").tex.strip()))
-            v.append(float(specie.find("CONSTRAINT_2").tex.strip()))
-            v.append(float(specie.find("CONSTRAINT_3").tex.strip()))
+            v.append(float(specie.find("CONSTRAINT_1").text.strip()))
+            v.append(float(specie.find("CONSTRAINT_2").text.strip()))
+            v.append(float(specie.find("CONSTRAINT_3").text.strip()))
         else:
             v = None
 
@@ -778,16 +791,16 @@ def get_magnetization_xml(tree, mydict):
 
     if i_cons == 3:
         v = []
-        v.append(float(specie.find("FIXED_MAGNETIZATION_1").tex.strip()))
-        v.append(float(specie.find("FIXED_MAGNETIZATION_2").tex.strip()))
-        v.append(float(specie.find("FIXED_MAGNETIZATION_3").tex.strip()))
+        v.append(float(specie.find("FIXED_MAGNETIZATION_1").text.strip()))
+        v.append(float(specie.find("FIXED_MAGNETIZATION_2").text.strip()))
+        v.append(float(specie.find("FIXED_MAGNETIZATION_3").text.strip()))
         mydict['mag_cons'].append(v)
 
     if i_cons == 4:
         v = []
-        v.append(float(specie.find("MAGNETIC_FIELD_1").tex.strip()))
-        v.append(float(specie.find("MAGNETIC_FIELD_2").tex.strip()))
-        v.append(float(specie.find("MAGNETIC_FIELD_3").tex.strip()))
+        v.append(float(specie.find("MAGNETIC_FIELD_1").text.strip()))
+        v.append(float(specie.find("MAGNETIC_FIELD_2").text.strip()))
+        v.append(float(specie.find("MAGNETIC_FIELD_3").text.strip()))
         mydict['bfield'] = v
     else:
         mydict['bfield'] = None
@@ -825,9 +838,9 @@ def get_xc_xml(tree, mydict):
     element = tree.find("EXCHANGE_CORRELATION")
 
     mydict['DFT'] = element.find("DFT").text
-    subel = element.find("LDA_PLUS_U_CALCULATION")
+    subel = element.find("LDA_PLUS_U_CALCULATION").text.strip()
     
-    if not subel is None:
+    if subel == 'T':
         
         nsp = int(element.find("NUMBER_OF_SPECIES").text.strip())
         mydict['lda_plus_u_kind'] = float(element.find("LDA_PLUS_U_KIND").text.strip())
@@ -862,8 +875,8 @@ def get_brillouin_zone_xml(tree, mydict):
     if mydict['lsda']:
         nkstot = nkstot * 2
 
-    mydict['nk'] = [int(x) for x in element.find("MONKHORST_PACK_GRID").attr.values()]
-    mydict['k'] = [int(x) for x in element.find("MONKHORST_PACK_OFFSET").attr.values()]
+    mydict['nk'] = [int(x) for x in element.find("MONKHORST_PACK_GRID").attrib.values()]
+    mydict['k'] = [int(x) for x in element.find("MONKHORST_PACK_OFFSET").attrib.values()]
 
     mydict['xk'] = []
     mydict['wk'] = []
@@ -871,25 +884,25 @@ def get_brillouin_zone_xml(tree, mydict):
     v = []
     w = []
     for i in range(num_kpts):
-        element.find("K-POINT."+str(i+1)).attr
+        attr=element.find("K-POINT."+str(i+1)).attrib
         v.append([float(x) for x in attr['XYZ'].split()])
         w.append(float(attr['WEIGHT']))
 
-    mydict['xk'] = v.copy()
-    mydict['wk'] = w.copy()
+    mydict['xk'] = v[:]
+    mydict['wk'] = w[:]
     
     if mydict['lsda']:
-        mydict['xk'].append(v.copy())
-        mydict['wk'].append(w.copy())
+        mydict['xk'].append(v[:])
+        mydict['wk'].append(w[:])
 
-
-    num_kpts_start = int(element.find("STARTING_K-POINTS").text.strip())        
-    mydict['xk_start'] = []
-    mydict['wk_start'] = []
-    for i in range(num_kpts_start):
-        element.find("K-POINT_START."+str(i+1)).attr
-        mydict['xk_start'].append([float(x) for x in attr['XYZ'].split()])
-        mydict['wk_start'].append(float(attr['WEIGHT']))
+    if element.find("STARTING_K-POINTS") :
+        num_kpts_start = int(element.find("STARTING_K-POINTS").text.strip())        
+        mydict['xk_start'] = []
+        mydict['wk_start'] = []
+        for i in range(num_kpts_start):
+            element.find("K-POINT_START."+str(i+1)).attr
+            mydict['xk_start'].append([float(x) for x in attr['XYZ'].split()])
+            mydict['wk_start'].append(float(attr['WEIGHT']))
 
     # for completeness, Bravais-symmetries should also be read here // look in pw_restart.f90 from PW source code dir
         
@@ -975,9 +988,9 @@ def get_band_structure_xml(tree, mydict):
     if not mydict['got_brillouin']:
         get_brillouin_zone_xml(tree, mydict)
     
-    info = tree.find('BAND_STRUCTURE_INFO')
+    element = tree.find('BAND_STRUCTURE_INFO')
     
-    mydict['nelec'] = int(element.find("NUMBER_OF_ELECTRONS").text.strip())
+    mydict['nelec'] = int(float(element.find("NUMBER_OF_ELECTRONS").text.strip()))
     subel = element.find("NUMBER_OF_ATOMIC_WFC")
     if not subel is None:
         mydict['natomwfc'] = int(element.find("NUMBER_OF_ATOMIC_WFC").text.strip())
@@ -1018,7 +1031,7 @@ def get_fermi_energy_xml(tree, mydict):
             return
 
     element = tree.find("BAND_STRUCTURE_INFO")
-    if not element,find("FERMI_ENERGY") is None:
+    if not element.find("FERMI_ENERGY") is None:
         mydict['ef'] = float(element.find("FERMI_ENERGY").text.strip()) * 2
     else:
         mydict['ef'] = 0.0
@@ -1045,7 +1058,8 @@ def read_quantumespresso_xmloutput(filename, action, mydict=None):
     returns a dictionary that contains the results.
     """
 
-    calls = {}
+    call = {}
+    call['version'] = get_qexml_version
     call['dim'] = get_dimensions_xml
     call['cell'] = get_cell_xml
     call['pw'] = get_planewaves_xml
@@ -1054,10 +1068,10 @@ def read_quantumespresso_xmloutput(filename, action, mydict=None):
     call['init_mag'] = get_magnetization_xml
     call['xc'] = get_xc_xml
     call['occ'] = None
-    calls['kpts'] = get_k_points_xml
+    call['kpts'] = get_k_points_xml
     call['bz'] = get_brillouin_zone_xml
     call['bs'] = get_band_structure_xml
-    call['wfc'] = get_wfc_xml
+    #call['wfc'] = get_wfc_xml
     call['efield'] = get_efield_xml
     call['symm'] = None
     call['rho'] = None
@@ -1067,7 +1081,7 @@ def read_quantumespresso_xmloutput(filename, action, mydict=None):
     actions = {}
     actions['dim'] = ['dim', 'bz']
     actions['pseudo'] = ['ions']
-    actions['config'] = ['cell, ions']
+    actions['config'] = ['cell', 'ions']
     actions['rho'] = None
     actions['wave'] = ['pw', 'wfc']
     actions['nowave'] = ['cell', 'pw','ions', 'spin', 'init_mag', 'xc', 'occ', 'bz', 'bs', 'symm', 'efield', 'occupations']
@@ -1083,10 +1097,13 @@ def read_quantumespresso_xmloutput(filename, action, mydict=None):
     if action in actions.keys():
         
         root = xml_openroot(filename)
+        mydict['filename']=filename
         get_dimensions_xml(root, mydict)
-        
+        get_qexml_version(root,mydict)
         for A in actions[action]:
-            calls[A](root, mydict)
+            print A
+            if call[A]!=None :
+                call[A](root, mydict)
 
     else:
         ValueError, "the action you specified ("+action+") is not present in my archive"
